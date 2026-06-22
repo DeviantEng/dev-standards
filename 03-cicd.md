@@ -315,7 +315,45 @@ project repository. Review all workflow changes with a human before merging.
 
 ---
 
-## Environment Strategy
+## Maintenance Workflows (optional)
+
+Create these in the **project** repo when operational needs apply. Not required
+for all projects.
+
+### Scheduled image rebuild
+
+Weekly no-cache rebuild to pick up base-image patches even without app changes.
+
+```yaml
+# .github/workflows/scheduled-image-rebuild.yml
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Monday 06:00 UTC
+permissions:
+  contents: read
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@<sha>
+      - name: No-cache build and push
+        run: docker build --no-cache -t <registry>/<image>:weekly .
+```
+
+### Registry cleanup
+
+Retention policy for container registry tags (e.g. GHCR). Prevents unbounded
+storage and reduces stale artifact exposure.
+
+```yaml
+# .github/workflows/ghcr-cleanup.yml — use registry provider CLI or action
+# Document retention: keep last N semver tags, all release tags, purge untagged > 30d
+```
+
+Declare which maintenance workflows are active in the project root `AGENTS.md`.
+
+---
 
 | Environment | Purpose | Deployed by | Approval required |
 |-------------|---------|-------------|-------------------|

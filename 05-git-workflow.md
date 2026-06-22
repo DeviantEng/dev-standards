@@ -100,15 +100,17 @@ Pre-commit hooks run locally before every commit as an early warning layer.
 They do not replace CI — CI is the enforcement layer. Hooks catch the fastest,
 cheapest failures before they reach the pipeline.
 
-### Required Hooks
+Choose one profile and declare it in the project root `AGENTS.md`.
 
-All projects must configure the following hooks via `pre-commit`:
+### Profile A — Full hooks (default for greenfield)
+
+Individual hooks for gitleaks, ruff, and standard file hygiene:
 
 ```yaml
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/gitleaks/gitleaks
-    rev: <pinned-sha>  # Pin to a commit SHA, not a tag — tags are mutable
+    rev: <pinned-sha>
     hooks:
       - id: gitleaks
 
@@ -129,6 +131,24 @@ repos:
         args: [--maxkb=500]
       - id: no-commit-to-branch
         args: [--branch, main, --branch, develop]
+```
+
+### Profile B — Delegate to Makefile
+
+Single hook runs `make check`. Valid only when the Makefile covers every
+Stage 1–2 gate the project requires (see `04-quality-gates.md`).
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: make-check
+        name: make check
+        entry: make check
+        language: system
+        pass_filenames: false
+        always_run: true
 ```
 
 ### Hook Behavior Rules
@@ -577,17 +597,21 @@ One short paragraph pointing to `AGENTS.md` and `dev-standards/` for detail.
 
 ### What Belongs in `README-extended.md`
 
-If the project has information that is valuable but would make the root README
-too long to skim, it goes in `README-extended.md`:
+Recommended for human deep documentation that would make the root README too
+long to skim. The root README links to it with one line:
+`For more detail, see README-extended.md.`
+
+Include:
 
 - Detailed architecture explanation
 - Full environment variable reference
-- Deployment runbook
+- Deployment runbook and **Development Flow** (branch/gate table — keep current)
 - Troubleshooting guide
 - Design decisions that do not warrant a full ADR
+- Pointers to `docs/security-audit-followups.md` and feature specs
 
-The root README links to `README-extended.md` at the bottom with a single line:
-`For more detail, see README-extended.md.`
+Do not duplicate dev-standards module content — link to the submodule instead.
+When submodule standards change, update extended docs in the same project change.
 
 ### What Does Not Belong in Any README
 
