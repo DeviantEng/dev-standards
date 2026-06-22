@@ -1,34 +1,66 @@
 # Quality Gates
 
-This document defines the specific tooling, commands, thresholds, and failure
-conditions that fulfill the scanning requirements defined in `02-security.md`
-and the pipeline stages defined in `03-cicd.md`. Every gate listed here must
-pass before a change is considered shippable.
+This document defines the tooling, setup steps, commands, thresholds, and failure
+conditions that fulfill the scanning requirements in `02-security.md` and the
+pipeline stages in `03-cicd.md`. Every gate listed here is part of the
+**greenfield default**. All must pass before a change is considered shippable.
 
 Tooling choices are recorded here with rationale. If a tool is replaced, update
-this document and the corresponding workflow files in the same PR.
+this document and the project's workflow files in the same change.
+
+---
+
+## Project Path Placeholders
+
+Gate commands use placeholders defined in the project root `AGENTS.md`:
+
+| Placeholder | Meaning | Example (`src-layout`) | Example (`app-root-layout`) |
+|-------------|---------|------------------------|----------------------------|
+| `{source_root}` | Application source directory | `src/` | `app/` |
+| `{test_path}` | Unit test directory | `tests/unit/` | `tests/` |
+| `{cov_threshold}` | Minimum line coverage | `80` | project-defined |
+
+Legacy projects aligning to these standards may track gaps in
+`docs/compliance-gaps.md` (owner + target date per gate). Production promotion
+still requires every category in `02-security.md` to be covered.
+
+---
+
+## Per-Gate Documentation Template
+
+Each gate below follows this structure:
+
+1. **Principle** — link to `02-security.md` category
+2. **Tool(s)** — canonical implementation
+3. **Config files** — where settings live
+4. **Local setup** — Makefile / pre-commit (when applicable)
+5. **CI setup** — job/step YAML example (copy into project workflows)
+6. **Thresholds** — what blocks vs what is tracked
+7. **Suppressions** — four-field requirement from `02-security.md`
 
 ---
 
 ## Gate Summary
 
-| Gate | Tool(s) | Blocks Pipeline | Workflow | Stage |
-|------|---------|-----------------|----------|-------|
-| Python lint + format | Ruff | Yes | pr-checks, publish | 1 |
-| Python type check | mypy | Yes | pr-checks | 1 |
-| JS/TS lint + format | ESLint + Prettier | Yes | pr-checks | 1 |
-| JS/TS type check | tsc --noEmit | Yes | pr-checks | 1 |
-| Secret detection | Gitleaks | Yes | pr-checks | 1 |
-| Unit tests + coverage | pytest + coverage | Yes | pr-checks, publish | 1 |
-| SAST — Python | Bandit | Yes | pr-checks | 2 |
-| SAST — JS/TS | ESLint security plugin | Yes | pr-checks | 2 |
-| SCA — Python | pip-audit | Yes | pr-checks | 2 |
-| SCA — JS/TS | npm audit | Yes | pr-checks | 2 |
-| OSS license scan | pip-licenses + license-checker | Yes | pr-checks | 2 |
-| IaC scan | Trivy (config mode) | Yes | pr-checks | 2 |
-| Container image scan | Trivy (image mode) | Yes | publish | 3 |
-| DAST — PR to main | ZAP full scan | Yes | pr-checks | 3 (PR) |
-| DAST — push to main/develop | ZAP baseline scan | Yes | publish | 3 |
+| Gate | Tool(s) | Stage | Blocks |
+|------|---------|-------|--------|
+| Python lint + format | Ruff | 1 | Yes |
+| Python type check | mypy | 1 | Yes (when enabled) |
+| JS/TS lint + format | ESLint + Prettier | 1 | Yes (when frontend) |
+| JS/TS type check | tsc --noEmit | 1 | Yes (when frontend) |
+| Secret detection | Gitleaks | 1 | Yes |
+| Unit tests + coverage | pytest + coverage | 1 | Yes |
+| SAST — Python | Bandit | 2 | Yes |
+| SAST — JS/TS | eslint-plugin-security | 1–2 | Yes (when frontend) |
+| SCA — Python | pip-audit | 2 | Yes |
+| SCA — Node | npm audit | 2 | Yes (when frontend) |
+| OSS license scan | pip-licenses + license-checker | 2 | Yes |
+| IaC scan | Trivy config | 2 | Yes |
+| Container image scan | Trivy image | 3 | Yes |
+| DAST — release PR | ZAP full | 3 (PR) | Yes |
+| DAST — publish | ZAP baseline | 3 | Yes |
+| Actions supply chain | zizmor | 2 | Yes |
+| Dependency pinning | Renovate or Dependabot | — | Policy |
 
 ---
 
@@ -36,69 +68,137 @@ this document and the corresponding workflow files in the same PR.
 
 ### Python Lint and Format — Ruff
 
-**Tool**: `ruff` — covers lint and format in a single fast tool.
+**Principle:** Code quality and consistency (`01-coding-standards.md`).
+
+**Tool:** `ruff` — lint and format in one tool.
+
+**Config files:** `pyproject.toml` → `[tool.ruff]`, `[tool.ruff.lint]`
+
+**Local setup:**
+
+```bash
+ruff check .
+ruff format --check .
+# fix: ruff check --fix . && ruff format .
+```
+
+**CI setup:**
 
 ```yaml
 - name: Install Ruff
   run: pip install ruff==<pinned-version>
-
 - name: Lint
   run: ruff check .
-
 - name: Format check
   run: ruff format --check .
 ```
 
-- Configuration lives in `pyproject.toml` under `[tool.ruff]`.
-- Zero warnings policy: `--select ALL` with explicit ignores documented in
-  `pyproject.toml`. Undocumented ignores are not permitted.
-- Ruff replaces Flake8, isort, and Black — do not add those separately.
+**Thresholds:** Any lint or format failure blocks.
+
+**Suppressions:** Rule ignores must be documented in `pyproject.toml` with
+reason. Undocumented ignores are not permitted. Do not silently disable
+security-relevant rules.
+
+**Notes:** Rule set is project-defined in `pyproject.toml`. Ruff replaces
+Flake8, isort, and Black.
+
+---
 
 ### Python Type Check — mypy
 
-**Tool**: `mypy` in strict mode.
+**Principle:** Static correctness; catches bugs before runtime.
+
+**Tool:** `mypy` in strict mode (when Python is in the project stack).
+
+**Config files:** `pyproject.toml` → `[tool.mypy]`
+
+**Local setup:**
+
+```bash
+mypy {source_root}/ --strict
+```
+
+**CI setup:**
 
 ```yaml
 - name: Type check
-  run: mypy src/ --strict
+  run: mypy {source_root}/ --strict
 ```
 
-- Configuration lives in `pyproject.toml` under `[tool.mypy]`.
-- `# type: ignore` suppressions require an inline comment explaining why.
-  Bare `# type: ignore` with no explanation is treated as a lint violation.
+**Thresholds:** Any type error blocks when typecheck is enabled in overlay.
 
-### JavaScript / TypeScript Lint and Format — ESLint + Prettier
+**Suppressions:** `# type: ignore` requires inline comment explaining why.
 
-**Tools**: ESLint with `eslint-plugin-security` + Prettier.
+---
+
+### JavaScript / TypeScript Lint and Format
+
+**Principle:** Code quality; partial SAST via security plugin (see Bandit/ESLint).
+
+**Tools:** ESLint with `eslint-plugin-security` + Prettier.
+
+**Config files:** `eslint.config.js`, `.prettierrc`, `package.json`
+
+**Local setup:**
+
+```bash
+npm run lint          # eslint --max-warnings=0
+npm run format:check  # prettier --check .
+```
+
+**CI setup:**
 
 ```yaml
 - name: Lint
-  run: npm run lint          # eslint --max-warnings=0
-
+  run: npm run lint
+  working-directory: frontend
 - name: Format check
-  run: npm run format:check  # prettier --check .
+  run: npm run format:check
+  working-directory: frontend
 ```
 
-- `--max-warnings=0` is required — warnings are not acceptable in CI.
-- ESLint config must include `eslint-plugin-security`. This doubles as
-  partial SAST coverage for the frontend (see Stage 2).
-- Prettier config lives in `.prettierrc`. No inline format disable comments
-  without an explanation.
+**Thresholds:** `--max-warnings=0`. Warnings block CI.
+
+**Suppressions:** Inline disable comments require explanation.
+
+---
 
 ### TypeScript Type Check
+
+**Principle:** Static type safety for frontend code.
+
+**Tool:** `tsc --noEmit`
+
+**Config files:** `tsconfig.json` (`strict: true` required)
+
+**Local setup:** `npx tsc --noEmit`
+
+**CI setup:**
 
 ```yaml
 - name: TypeScript typecheck
   run: npx tsc --noEmit
+  working-directory: frontend
 ```
 
-- `strict: true` is required in `tsconfig.json`. No exceptions.
-- `//@ts-ignore` and `//@ts-expect-error` require an inline explanation comment.
+**Thresholds:** Any type error blocks.
+
+**Suppressions:** `//@ts-ignore` / `//@ts-expect-error` require inline explanation.
+
+---
 
 ### Secret Detection — Gitleaks
 
-**Tool**: Gitleaks — scans the git diff on every push and PR for committed
-secrets, tokens, and credentials.
+**Principle:** [Secret Detection](02-security.md#required-security-scanning-coverage) —
+no secrets in source control.
+
+**Tool:** Gitleaks
+
+**Config files:** `.gitleaksignore` (documented false positives only)
+
+**Local setup:** Pre-commit hook (see `05-git-workflow.md`)
+
+**CI setup:**
 
 ```yaml
 - name: Secret scan
@@ -107,33 +207,47 @@ secrets, tokens, and credentials.
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-- Runs on every push to every branch and every PR.
-- **If Gitleaks fires, treat the secret as compromised immediately.** Rotate
-  before addressing the pipeline failure.
-- Allowed suppressions: `.gitleaksignore` file with inline comments explaining
-  each entry. False positives must be documented — empty suppressions are invalid.
-- Pre-commit hook (see `05-git-workflow.md`) runs Gitleaks locally before push
-  as an early warning. CI is the enforcement layer.
+**Thresholds:** Any detected secret blocks. **Rotate the secret immediately**
+before fixing the pipeline.
+
+**Suppressions:** `.gitleaksignore` entries require inline comments per entry.
+
+---
 
 ### Unit Tests and Coverage — pytest
 
-**Tool**: pytest with pytest-cov.
+**Principle:** Tests are part of definition of done (`01-coding-standards.md`).
+
+**Tool:** pytest with pytest-cov
+
+**Config files:** `pyproject.toml` → `[tool.pytest.ini_options]`
+
+**Local setup:**
+
+```bash
+pytest {test_path}/ -v \
+  --cov={source_root} \
+  --cov-report=term-missing \
+  --cov-fail-under={cov_threshold}
+```
+
+**CI setup:**
 
 ```yaml
 - name: Run unit tests
   run: |
-    pytest tests/unit/ -v \
-      --cov=src \
+    pytest {test_path}/ -v \
+      --cov={source_root} \
       --cov-report=term-missing \
       --cov-report=xml \
-      --cov-fail-under=80
+      --cov-fail-under={cov_threshold}
 ```
 
-- `--cov-fail-under=80` is the shared minimum. Project overlay may raise this.
-- Coverage report is uploaded as a CI artifact for review.
-- `tests/unit/` only in Stage 1 — no integration tests here.
-- Test run must complete within the timeout defined in `03-cicd.md` (10 minutes).
-- A passing test suite that drops below the coverage threshold **fails the gate**.
+**Thresholds:** Test failure or coverage below `{cov_threshold}` blocks.
+Default greenfield minimum: 80% on `{source_root}`. Overlay may raise threshold
+or narrow scope with documented reason.
+
+**Notes:** Stage 1 runs unit tests only — no integration tests.
 
 ---
 
@@ -141,66 +255,80 @@ secrets, tokens, and credentials.
 
 ### SAST — Python — Bandit
 
-**Tool**: Bandit — static analysis for common Python security issues.
+**Principle:** [SAST](02-security.md#required-security-scanning-coverage)
+
+**Tool:** Bandit
+
+**Config files:** `pyproject.toml` → `[tool.bandit]`
+
+**Local setup:** `bandit -r {source_root}/ -c pyproject.toml`
+
+**CI setup:**
 
 ```yaml
 - name: Install Bandit
   run: pip install bandit[toml]
-
 - name: SAST scan
-  run: bandit -r src/ -c pyproject.toml
+  run: bandit -r {source_root}/ -c pyproject.toml
 ```
 
-- Configuration in `pyproject.toml` under `[tool.bandit]`.
-- Severity threshold: HIGH and above block the pipeline. MEDIUM findings are
-  reported but do not block (they are tracked as issues).
-- `# nosec` suppressions require an inline comment with the Bandit rule ID
-  and justification. Bare `# nosec` is not valid.
+**Thresholds:** HIGH and above block. MEDIUM tracked as issues.
+
+**Suppressions:** `# nosec` requires Bandit rule ID and justification.
+
+---
 
 ### SAST — JavaScript/TypeScript — ESLint Security Plugin
 
-ESLint with `eslint-plugin-security` running in Stage 1 provides SAST coverage
-for the frontend. No separate tool is required if the plugin is configured with
-the full recommended ruleset:
+**Principle:** [SAST](02-security.md#required-security-scanning-coverage)
+
+**Tool:** `eslint-plugin-security` (runs with ESLint in Stage 1)
+
+**Config files:** `eslint.config.js`
 
 ```js
-// eslint.config.js
 import security from 'eslint-plugin-security'
 export default [security.configs.recommended]
 ```
 
-For deeper JS/TS SAST coverage on security-sensitive projects, Semgrep may be
-added as a project overlay tool.
+**Thresholds:** Same as ESLint — zero warnings.
+
+**Notes:** Semgrep may be added in overlay for deeper JS/TS SAST.
+
+---
 
 ### SCA — Python — pip-audit
 
-**Tool**: pip-audit — scans Python dependencies against OSV and PyPI Advisory DB.
+**Principle:** [SCA](02-security.md#required-security-scanning-coverage)
+
+**Tool:** pip-audit
+
+**Config files:** `requirements.txt` (fully pinned)
+
+**Local setup:** `pip-audit -r requirements.txt`
+
+**CI setup:**
 
 ```yaml
-- name: Install pip-audit
-  run: pip install pip-audit
-
 - name: Python dependency audit
   run: pip-audit -r requirements.txt
 ```
 
-- HIGH and CRITICAL CVEs block the pipeline.
-- Suppressions use `--ignore-vuln <CVE-ID>` and **must** be accompanied by an
-  inline comment in the workflow file explaining: the CVE, why it is suppressed,
-  and when it should be revisited. This matches the exception process in
-  `02-security.md`.
+**Thresholds:** HIGH and CRITICAL CVEs block.
 
-  ```yaml
-  # CVE-2026-XXXX: No fix available upstream as of <date>. 
-  # Transitive via <package>. Revisit after <package> releases ><version>.
-  run: pip-audit -r requirements.txt --ignore-vuln CVE-2026-XXXX
-  ```
+**Suppressions:** `--ignore-vuln` with inline workflow comment (CVE, reason, revisit date).
 
-- `requirements.txt` must be fully pinned. Floating ranges cause audit drift.
+---
 
 ### SCA — JavaScript/TypeScript — npm audit
 
-**Tool**: npm audit (built-in).
+**Principle:** [SCA](02-security.md#required-security-scanning-coverage)
+
+**Tool:** npm audit
+
+**Config files:** `package-lock.json` (committed; use `npm ci` in CI)
+
+**CI setup:**
 
 ```yaml
 - name: JS dependency audit
@@ -208,39 +336,45 @@ added as a project overlay tool.
   working-directory: frontend
 ```
 
-- `--audit-level=high` blocks on HIGH and CRITICAL. MODERATE and below are
-  reported, not blocking.
-- Lockfile (`package-lock.json`) must be committed and used. `npm ci` is used
-  in all CI jobs, never `npm install`.
+**Thresholds:** HIGH and CRITICAL block. MODERATE tracked.
+
+---
 
 ### OSS License Scanning
 
-**Tools**: `pip-licenses` (Python) + `license-checker` (Node).
+**Principle:** [OSS License Scanning](02-security.md#required-security-scanning-coverage)
+
+**Tools:** `pip-licenses` (Python), `license-checker` (Node)
+
+**CI setup:**
 
 ```yaml
-# Python
 - name: Python license scan
   run: |
     pip install pip-licenses
     pip-licenses --fail-on="GPL;AGPL;LGPL" --format=markdown
-
-# Node
 - name: Node license scan
-  run: |
-    npx license-checker --failOn "GPL;AGPL;LGPL" --summary
+  run: npx license-checker --failOn "GPL;AGPL;LGPL" --summary
   working-directory: frontend
 ```
 
-- Blocked licenses by default: GPL, AGPL, LGPL (copyleft licenses incompatible
-  with typical proprietary or MIT-licensed projects).
-- Project overlay defines the allowed license policy if the defaults do not apply.
-- New dependencies with non-permissive licenses require explicit human approval
-  before the suppression is added.
+**Thresholds:** Blocked licenses (default: GPL, AGPL, LGPL) fail the gate.
+
+**Suppressions:** New non-permissive licenses require human approval before suppression.
+
+---
 
 ### IaC Scanning — Trivy Config Mode
 
-**Tool**: Trivy in `--scanners config` mode — catches Dockerfile, Helm, and
-Terraform misconfigurations.
+**Principle:** [IaC Scanning](02-security.md#required-security-scanning-coverage)
+
+**Tool:** Trivy `--scanners config`
+
+**Config files:** `.trivyignore`
+
+**Local setup:** `trivy config . --severity HIGH,CRITICAL --exit-code 1`
+
+**CI setup:**
 
 ```yaml
 - name: IaC scan
@@ -251,131 +385,144 @@ Terraform misconfigurations.
       --ignorefile .trivyignore
 ```
 
-- Runs on every push containing changes to `Dockerfile`, `docker-compose*.yml`,
-  `.github/workflows/`, `helm/`, or `terraform/` paths. Use path filters in
-  the workflow trigger to avoid unnecessary runs.
-- Findings are reported in the job summary alongside the image scan results.
+**Thresholds:** HIGH and CRITICAL block.
+
+**Suppressions:** `.trivyignore` entries require four-field comment blocks.
+
+**Notes:** Path-filter workflow triggers on Dockerfile, compose, workflows, helm, terraform.
 
 ---
 
-## Stage 3 — Container Image Scanning — Trivy
+### Actions Supply Chain — zizmor
 
-**Tool**: Trivy in image mode. This is the primary container gate.
+**Principle:** CI/CD pipeline integrity; catches unsafe workflow patterns.
+
+**Tool:** [zizmor](https://github.com/zizmorcore/zizmor)
+
+**Config files:** None required; pin version in Makefile and CI consistently.
+
+**Local setup:** `zizmor --version` (install pinned release); run against `.github/workflows/`
+
+**CI setup:**
+
+```yaml
+- name: zizmor workflow audit
+  run: |
+    curl -fsSL https://github.com/zizmorcore/zizmor/releases/download/v<version>/zizmor-<platform>.tar.gz | tar xz
+    ./zizmor --format plain .github/workflows/
+```
+
+**Thresholds:** Findings at configured severity block (project defines minimum severity).
+
+**Notes:** Keep `ZIZMOR_VERSION` synced between Makefile and CI job.
+
+---
+
+## Stage 3 — Container and DAST
+
+### Container Image Scanning — Trivy
+
+**Principle:** [Container Image Scanning](02-security.md#required-security-scanning-coverage)
+
+**Tool:** Trivy image mode
+
+**Config files:** `.trivyignore`, Dockerfile (digest-pinned base, non-root user)
+
+**CI setup:**
 
 ```yaml
 - name: Run Trivy vulnerability scanner
   run: |
-    # Surface ignored CVEs in job summary for visibility
-    if [ -f .trivyignore ]; then
-      echo "### Ignored CVEs (review at expiry dates)" >> $GITHUB_STEP_SUMMARY
-      echo '```' >> $GITHUB_STEP_SUMMARY
-      cat .trivyignore >> $GITHUB_STEP_SUMMARY
-      echo '```' >> $GITHUB_STEP_SUMMARY
-    fi
-
-    echo "## Trivy Vulnerability Scan" >> $GITHUB_STEP_SUMMARY
-    echo '```' >> $GITHUB_STEP_SUMMARY
-
-    # Capture output and exit code separately so tee doesn't mask failures
-    set +e
-    output=$(trivy image \
+    trivy image \
       --severity CRITICAL,HIGH \
       --exit-code 1 \
-      --format table \
       --ignorefile .trivyignore \
-      <registry>/<image>:scan 2>&1)
-    exitcode=$?
-    set -e
-
-    echo "$output" >> $GITHUB_STEP_SUMMARY
-    echo '```' >> $GITHUB_STEP_SUMMARY
-    exit $exitcode
+      <registry>/<image>:scan
 ```
 
-- **Image is built first, scanned before push.** A failing scan prevents the
-  image from reaching the registry.
-- `.trivyignore` entries require a comment block above each entry:
-  ```
-  # CVE-2026-XXXX
-  # Reason: No fix available in upstream <package> as of <date>.
-  # Revisit: When <package> releases ><version>.
-  # Owner: <team or person>
-  CVE-2026-XXXX
-  ```
-- Entries without all four comment fields are not valid and must be corrected.
-- Trivy Action is pinned to a full commit SHA — not a tag. Update the SHA
-  deliberately with a PR, not automatically.
-- The full Trivy output is written to the GitHub Actions job summary for
-  visibility without requiring log inspection.
+**Thresholds:** CRITICAL and HIGH block before push to registry.
 
-### Base Image Standards
+**Suppressions:** Four-field comment block above each `.trivyignore` entry.
 
-- Use minimal base images: `distroless`, `alpine`, or `-slim` variants.
-- Pin base images to a digest in the Dockerfile, not a tag:
-  ```dockerfile
-  # ✅
-  FROM python:3.14-slim@sha256:<digest>
-  # ❌
-  FROM python:3.14-slim
-  ```
-- Run as a non-root user. Every Dockerfile must include:
-  ```dockerfile
-  RUN adduser --disabled-password --gecos '' appuser
-  USER appuser
-  ```
-- Do not install unnecessary packages. Every layer adds attack surface.
+**Base image standards:**
+
+```dockerfile
+FROM python:3.14-slim@sha256:<digest>
+RUN adduser --disabled-password --gecos '' appuser
+USER appuser
+```
 
 ---
 
-## DAST — ZAP
+### DAST — ZAP
 
-**Tool**: OWASP ZAP, run via custom scripts against an ephemeral containerized
-instance of the application. No persistent staging environment is required —
-the container is started within the pipeline run and torn down after scanning.
+**Principle:** [DAST](02-security.md#required-security-scanning-coverage)
 
-Two scan tiers are used depending on pipeline context:
+**Tool:** OWASP ZAP via project scripts against ephemeral container.
 
-| Context | Workflow | Scan type | Script | Trigger |
-|---------|----------|-----------|--------|---------|
-| PR to `main` | `pr-checks.yml` | Full scan (active) | `.github/scripts/zap-full-scan.sh` | PR opened or updated |
-| Push to `main` or `develop` | `publish.yml` | Baseline scan (passive) | `.github/scripts/zap-scan.sh` | Post-build, pre-push |
+| Context | Scan | Script | Trigger |
+|---------|------|--------|---------|
+| Release PR to `main` | Full (active) | `.github/scripts/zap-full-scan.sh` | PR |
+| Push to `main`/`develop` | Baseline (passive) | `.github/scripts/zap-scan.sh` | Publish pipeline |
 
-### How It Works
-
-1. The Docker image is built with a `:scan` tag (single-arch, not pushed).
-2. The image is started as a container (`cmdarr-zap-target` or equivalent).
-3. ZAP scans the running container on its exposed port.
-4. The container is stopped in an `if: always()` step regardless of scan outcome.
-5. On the publish pipeline, the image is only pushed if the ZAP scan passes
-   (`if: success()` guard on the build-and-push step).
+**CI setup:**
 
 ```yaml
-- name: ZAP full scan        # pr-checks.yml
+- name: ZAP full scan
   run: .github/scripts/zap-full-scan.sh <registry>/<image>:scan ${{ github.workspace }}
-
-- name: ZAP baseline scan    # publish.yml
-  run: .github/scripts/zap-scan.sh <registry>/<image>:scan ${{ github.workspace }}
-
 - name: Stop container
   if: always()
   run: docker stop <container-name> 2>/dev/null || true
 ```
 
-### Scan Tiers
+**Thresholds:** HIGH and above block.
 
-- **Full scan (PR)**: Active scanning enabled. ZAP attempts to interact with
-  the application to discover injection, authentication, and exposure issues.
-  Longer duration, broader coverage. Blocks PR merge on HIGH findings.
-- **Baseline scan (main/develop)**: Passive scanning only. ZAP spiders the
-  application and reports findings without active probing. Faster. Confirms
-  no regressions introduced after merge. Blocks image push on HIGH findings.
+**Suppressions:** ZAP context/rules file with four-field documentation.
 
-### Thresholds and Suppressions
+---
 
-- ZAP findings at HIGH or above block the pipeline in both scan tiers.
-- False positives are suppressed via a ZAP context or rules file in `.github/zap/`.
-- Suppressions follow the four-field documentation requirement (finding ID,
-  reason, owner, expiry) consistent with Trivy and pip-audit suppression policy.
+## Dependency and Action Pinning
+
+### GitHub Actions SHA Pinning
+
+**Principle:** Supply chain integrity — immutable Action references.
+
+**Policy:** Every `uses:` directive pins a full commit SHA with a version comment:
+
+```yaml
+# actions/checkout v4.2.2
+uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+```
+
+Tags (`@v4`) and branches (`@main`) are not acceptable.
+
+### Renovate or Dependabot
+
+**Principle:** Automated, reviewable updates for Actions SHAs and container digests.
+
+**Config files:** `renovate.json` or `.github/dependabot.yml` in the **project** repo.
+
+**Setup (Renovate example):**
+
+```json
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "matchManagers": ["dockerfile"],
+      "pinDigests": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "pinDigests": true
+    }
+  ]
+}
+```
+
+**Policy:** SHA and digest updates arrive via PR (or direct commit per project workflow).
+Never float Action tags in workflow files.
 
 ---
 
@@ -384,58 +531,30 @@ Two scan tiers are used depending on pipeline context:
 ### What Always Blocks
 
 - Any lint or format failure
-- Any type error
+- Any type error (when typecheck enabled for stack)
 - Any secret detected by Gitleaks
-- Unit test failure
-- Coverage below project threshold (minimum 80%)
+- Unit test failure or coverage below `{cov_threshold}`
 - Any Bandit HIGH finding
-- Any pip-audit or npm audit HIGH/CRITICAL CVE (unless suppressed with valid documentation)
-- Any Trivy CRITICAL or HIGH finding in image or IaC scan (unless suppressed with valid documentation)
+- Any pip-audit or npm audit HIGH/CRITICAL (unless valid suppression)
+- Any Trivy CRITICAL/HIGH in image or IaC scan (unless valid suppression)
 - Any ZAP HIGH finding
 - Any blocked license detected
+- zizmor findings at project-configured blocking severity
 
-### What Never Blocks But Is Always Tracked
+### Suppression Rules (all tools)
 
-- Bandit MEDIUM findings → GitHub Issue, triaged within 30 days
-- npm audit MODERATE findings → GitHub Issue, triaged within 30 days
-- Trivy MEDIUM findings → GitHub Issue, triaged within 30 days
-- ZAP MEDIUM findings → GitHub Issue, triaged within 30 days
+Valid suppressions require all four fields from `02-security.md`:
 
-### Suppression Rules (applies to all tools)
+1. Finding ID
+2. Reason
+3. Owner
+4. Expiry
 
-A suppression is only valid when it includes all of the following:
-
-1. **Finding ID** — CVE number, rule ID, or ZAP alert name
-2. **Reason** — why this is suppressed (false positive, no fix available, accepted risk)
-3. **Owner** — team or person responsible for review
-4. **Expiry** — date or milestone at which the suppression must be re-evaluated
-
-Suppressions missing any field are flagged in PR review and must be corrected
-before merge. Agents must not add suppressions without all four fields.
+Agents must not add suppressions without all four fields.
 
 ---
 
-## Actions Pinning
+## Actions Pinning (reference)
 
-All GitHub Actions used in pipelines must be pinned to a full commit SHA.
-This applies to every `uses:` directive without exception.
-
-```yaml
-# ✅ Correct
-uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-# ❌ Not acceptable
-uses: actions/checkout@v4
-uses: actions/checkout@main
-```
-
-Maintain a comment above each pinned action with the human-readable version
-for maintainability:
-
-```yaml
-# actions/checkout v4.2.2
-uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-```
-
-Use a tool such as `pin-github-action` or Dependabot to manage SHA updates
-deliberately via PR rather than manually.
+See **Dependency and Action Pinning** above. Use Renovate or Dependabot to
+propose SHA updates deliberately — never auto-float tags.

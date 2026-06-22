@@ -331,14 +331,14 @@ Additional blocked licenses for this project: [none / list any].
 ## Agent Instructions
 
 <!-- Project-specific behavioral rules for agents. These add to, never
-replace, the rules in dev-standards/AGENTS.md. -->
+replace, the rules in dev-standards/00-overview.md and 02-security.md. -->
 
 ### Scope Boundaries
 
 Agents working on this project should:
 
-- [ ] Read `dev-standards/AGENTS.md` before starting any task
-- [ ] Read the relevant `dev-standards/` module for the area being changed
+- [ ] Read this file (project root `AGENTS.md`) before starting any task
+- [ ] Read `./dev-standards/00-overview.md` and the relevant module for the area being changed
 - [ ] Read relevant ADRs in `docs/adr/` before changing areas they cover
 - [ ] Run `pre-commit run --all-files` before pushing
 

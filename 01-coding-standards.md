@@ -209,31 +209,64 @@ must be chosen and applied consistently — do not mix:
 
 ## Project Structure
 
-Every project must follow this universal directory skeleton. Language-specific
-contents within each directory are defined in the project overlay.
+Every project declares a **layout profile** in its root `AGENTS.md` overlay.
+The profile defines where source code and tests live. Deviations from the
+profile skeleton are documented in the overlay — not as a full directory tree.
+
+### Layout Profiles
+
+#### `src-layout` (greenfield default)
+
+Application source under `src/`. Tests under `tests/unit/` and
+`tests/integration/`.
 
 ```
 project-root/
-├── AGENTS.md                  # Project entry point — copy from dev-standards/AGENTS.template.md
-├── dev-standards/             # Git submodule — do not edit directly
-├── README.md                  # Human-facing: purpose, setup, usage
-├── src/                       # All application source code
-│   ├── clients/               # External service clients (HTTP, DB, queue, etc.)
-│   ├── models/                # Data models, schemas, domain types
-│   ├── services/              # Business logic — orchestrates clients and models
-│   ├── utils/                 # Pure helper functions with no side effects
-│   └── config/                # Configuration loading and validation
-├── tests/                     # Test suite (or co-located — defined in overlay)
-│   ├── unit/                  # Unit tests — no external calls
-│   ├── integration/           # Integration tests — controlled external calls
-│   └── fixtures/              # Shared test data and mock factories
-├── scripts/                   # Operational scripts (migrations, seed data, etc.)
-├── docs/                      # Architecture decisions, runbooks, API docs
-└── .github/
-    └── workflows/             # GitHub Actions pipeline definitions
+├── AGENTS.md                  # Project entry point — generated at project root
+├── dev-standards/             # Git submodule — do not edit
+├── README.md
+├── src/
+│   ├── clients/
+│   ├── models/
+│   ├── services/
+│   ├── utils/
+│   └── config/
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── fixtures/
+├── scripts/
+├── docs/
+└── .github/workflows/
 ```
 
-### Directory Rules
+**Overlay paths:** `{source_root}` = `src/`, `{test_path}` = `tests/unit/`
+
+#### `app-root-layout` (Python/FastAPI common)
+
+Application packages at repo root. Tests mirrored as flat `tests/test_*.py`.
+
+```
+project-root/
+├── AGENTS.md
+├── dev-standards/
+├── app/                       # or domain-specific top-level packages
+├── commands/
+├── clients/
+├── tests/
+│   └── test_*.py
+├── docs/
+└── .github/workflows/
+```
+
+**Overlay paths:** `{source_root}` = `app/` (or declared package roots),
+`{test_path}` = `tests/`
+
+Declare the profile and any deviations in the project `AGENTS.md`. Quality
+gate commands in `04-quality-gates.md` use `{source_root}` and `{test_path}`
+placeholders — substitute the values from your overlay.
+
+### Directory Rules (apply within declared profile)
 
 - **`clients/`**: One file per external dependency. A client wraps all
   interaction with one external system. No business logic lives here — only
