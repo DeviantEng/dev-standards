@@ -86,9 +86,6 @@ changed. Do not edit the submodule directly.
 
 ## Contributing
 
-Changes to this repo are committed directly to `main` with a `CHANGELOG.md`
-entry. See `CONTRIBUTING.md` for details. Security rule changes require a
-changelog entry and minor version note. Breaking gate changes require a major
-version note.
-
-Consuming projects follow the PR-based workflow in `05-git-workflow.md`.
+Changes commit directly to `main` with a `CHANGELOG.md` entry. See
+[CONTRIBUTING.md](CONTRIBUTING.md). Consuming projects follow the PR-based
+workflow in `05-git-workflow.md`.

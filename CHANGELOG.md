@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `06-agent-guidance.md` — inclusion filter, generation workflow, Always/Ask/Never tiers
+- `CONTRIBUTING.md` — direct-to-main workflow for this repo
 - Layout profiles (`src-layout`, `app-root-layout`) in `01-coding-standards.md`
 - Team workflow profiles and CI trigger profiles in `03-cicd.md`
 - Workflow authoring guidance for agents in `03-cicd.md`
@@ -35,3 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed broken references to nonexistent `dev-standards/AGENTS.md`
 - Removed false claim about reusable workflows in `dev-standards/.github/workflows/`
+
+### Removed
+
+- Transient cmdarr review plan file (not part of standards)
