@@ -26,6 +26,55 @@ still requires every category in `02-security.md` to be covered.
 
 ---
 
+## Makefile as Local Gate SSOT
+
+Every project should provide `make check` and `make fix` that invoke the same
+commands CI runs for Stages 1–2. CI workflow steps should call `make check`
+where possible so local and pipeline behavior stay aligned.
+
+Pin tool versions in the Makefile with comments noting the CI job that must
+stay in sync (especially zizmor, Trivy, Ruff).
+
+**Example Makefile excerpt (adapt paths and stack):**
+
+```makefile
+RUFF_VERSION := 0.9.0
+ZIZMOR_VERSION := 1.0.0
+SOURCE_ROOT := src
+TEST_PATH := tests/unit
+COV_THRESHOLD := 80
+
+.PHONY: check fix lint format type test security
+
+check: lint format type test security
+
+fix:
+	ruff check --fix .
+	ruff format .
+
+lint:
+	ruff check .
+
+format:
+	ruff format --check .
+
+type:
+	mypy $(SOURCE_ROOT)/ --strict
+
+test:
+	pytest $(TEST_PATH)/ -v --cov=$(SOURCE_ROOT) --cov-fail-under=$(COV_THRESHOLD)
+
+security:
+	bandit -r $(SOURCE_ROOT)/ -c pyproject.toml
+	pip-audit -r requirements.txt
+	zizmor .github/workflows/
+```
+
+Agents generate the full Makefile for the project's stack using gate commands
+from each section below. Substitute `{source_root}` / `{test_path}` from the overlay.
+
+---
+
 ## Per-Gate Documentation Template
 
 Each gate below follows this structure:
@@ -414,7 +463,9 @@ export default [security.configs.recommended]
 
 **Thresholds:** Findings at configured severity block (project defines minimum severity).
 
-**Notes:** Keep `ZIZMOR_VERSION` synced between Makefile and CI job.
+**Notes:** Keep `ZIZMOR_VERSION` synced between Makefile and CI job. Track
+accepted findings and sync notes in project `docs/security-audit-followups.md`
+(see `02-security.md`).
 
 ---
 
@@ -502,12 +553,13 @@ Tags (`@v4`) and branches (`@main`) are not acceptable.
 
 **Config files:** `renovate.json` or `.github/dependabot.yml` in the **project** repo.
 
-**Setup (Renovate example):**
+**Setup (Renovate example — digest pinning, grouped weekly PRs):**
 
 ```json
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "schedule": ["before 6am on Monday"],
   "packageRules": [
     {
       "matchManagers": ["dockerfile"],
@@ -515,14 +567,16 @@ Tags (`@v4`) and branches (`@main`) are not acceptable.
     },
     {
       "matchManagers": ["github-actions"],
-      "pinDigests": true
+      "pinDigests": true,
+      "groupName": "github-actions"
     }
   ]
 }
 ```
 
-**Policy:** SHA and digest updates arrive via PR (or direct commit per project workflow).
-Never float Action tags in workflow files.
+**Policy:** SHA and digest updates arrive via PR (or direct commit per project
+workflow). Automerge on `develop` is acceptable for patch-level Action SHA bumps
+when the project overlay allows it. Never float Action tags in workflow files.
 
 ---
 

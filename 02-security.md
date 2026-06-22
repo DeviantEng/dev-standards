@@ -218,9 +218,23 @@ If a finding must be suppressed (e.g., a false positive or an accepted risk):
 
 Suppressions without all four elements are not valid and will be flagged in review.
 
----
+### Security Audit Follow-Ups (project overlay)
 
-## Public Repository Safety
+Projects with accepted risks, deferred remediations, or tool-version sync notes
+should maintain `docs/security-audit-followups.md` in the **project repo** (not
+in dev-standards). This is a process document — never include secrets or
+exploitable details.
+
+Recommended columns:
+
+| Finding | Tool | Status | Removal criteria | Owner | Review date |
+|---------|------|--------|------------------|-------|-------------|
+| CVE-XXXX | Trivy | Accepted | Upstream fix in >v2.3 | team | 2026-09-01 |
+
+Link suppressions in tool config files to rows in this document. Note Makefile/CI
+version sync requirements (e.g. zizmor pin) here when they affect remediation.
+
+---
 
 All standards documents and project `AGENTS.md` overlays are treated as
 public by default. Assume any file in `dev-standards/` or any `AGENTS.md`
