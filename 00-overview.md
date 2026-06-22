@@ -2,8 +2,11 @@
 
 This repository is consumed as a git submodule in project repositories. It
 defines shared standards, workflows, and quality gates that apply across all
-projects. It is not the agent entry point — agents start at the project root
+projects. It is not the agent entry point — agents start at the **project root**
 `AGENTS.md`, which references this file.
+
+There is **no** `AGENTS.md` inside `dev-standards/`. Project `AGENTS.md` is
+generated at the project root from `AGENTS.template.md` plus a project plan file.
 
 ---
 
@@ -11,21 +14,23 @@ projects. It is not the agent entry point — agents start at the project root
 
 ```
 /opt/projects/project1/
-├── AGENTS.md              ← agent entry point (project-specific, references this repo)
-└── dev-standards/         ← this repo, as a git submodule
+├── AGENTS.md              ← agent entry point (generated; lives at project root)
+├── docs/project-plan.md   ← example project plan input (or README, architecture brief)
+└── dev-standards/         ← this repo, as a git submodule (read only)
     ├── 00-overview.md     ← you are here
     ├── 01-coding-standards.md
     ├── 02-security.md
     ├── 03-cicd.md
     ├── 04-quality-gates.md
     ├── 05-git-workflow.md
-    └── AGENTS.template.md ← scaffold for creating the project AGENTS.md
+    ├── 06-agent-guidance.md
+    └── AGENTS.template.md ← scaffold for generating project AGENTS.md
 ```
 
 Agents auto-discover `/opt/projects/project1/AGENTS.md` as their entry point.
 That file references `./dev-standards/00-overview.md` (this file) and the
-relevant modules below. Agents never navigate here directly — they are pointed
-here by the project `AGENTS.md`.
+relevant modules below. Agents never navigate to `dev-standards/` directly —
+they are pointed here by the project `AGENTS.md`.
 
 ---
 
@@ -34,12 +39,13 @@ here by the project `AGENTS.md`.
 | Module | File | Purpose |
 |--------|------|---------|
 | Overview | `00-overview.md` | This file — structure, setup, how to use |
-| Coding Standards | `01-coding-standards.md` | Modularity, reuse, naming, error handling, tech debt, project structure |
+| Coding Standards | `01-coding-standards.md` | Modularity, reuse, naming, error handling, tech debt, layout profiles |
 | Security | `02-security.md` | Secure-by-default rules, secrets, scanning requirements, agent security rules |
-| CI/CD Pipeline | `03-cicd.md` | Branch strategy, release model, pipeline stages, GitHub Actions standards |
-| Quality Gates | `04-quality-gates.md` | Tooling, commands, thresholds — what must pass and how |
+| CI/CD Pipeline | `03-cicd.md` | Branch strategy, pipeline stages, workflow authoring for agents |
+| Quality Gates | `04-quality-gates.md` | Tooling, setup steps, commands, thresholds — what must pass and how |
 | Git Workflow | `05-git-workflow.md` | Commit conventions, PR process, pre-commit hooks, agent git behavior |
-| Project Template | `AGENTS.template.md` | Scaffold for creating a new project's `AGENTS.md` |
+| Agent Guidance | `06-agent-guidance.md` | How to write AGENTS.md overlays; inclusion filter; generation workflow |
+| Project Template | `AGENTS.template.md` | Scaffold for generating a new project's root `AGENTS.md` |
 
 ---
 
@@ -52,52 +58,36 @@ cd /opt/projects/your-new-project
 git submodule add git@github.com:<your-org>/dev-standards.git dev-standards
 ```
 
-### Step 2 — Create the project `AGENTS.md` using AI
+Do not edit files inside `dev-standards/` from the consuming project.
+
+### Step 2 — Generate the project `AGENTS.md`
 
 Do not fill in `AGENTS.template.md` manually line by line. Use an AI agent to
-generate a complete, accurate project overlay in one pass.
+generate a complete project overlay at the **project root**.
 
-Copy the template to the project root:
+**Inputs:**
+- `dev-standards/AGENTS.template.md` — structure and required sections
+- **Project plan file** — purpose, stack, constraints (e.g. `docs/project-plan.md`,
+  README, or architecture brief)
 
-```bash
-cp dev-standards/AGENTS.template.md ./AGENTS.md
+**Output:**
+- `./AGENTS.md` at the project root only — never inside `dev-standards/`
+
+Example prompt:
+
+```
+Read dev-standards/AGENTS.template.md and dev-standards/06-agent-guidance.md.
+Read my project plan at docs/project-plan.md (and scan the codebase if it exists).
+
+Generate ./AGENTS.md at the project root. Include only non-inferable project
+facts: identity, layout profile, workflow profile, paths, commands, domain
+glossary, and deviations. Link to dev-standards/ modules — do not duplicate
+their content. Do not leave placeholder text. Never write AGENTS.md inside
+dev-standards/.
 ```
 
-Then prompt your AI agent with something like:
-
-```
-I have a new project called [Project Name]. Here is its purpose: [description].
-The stack is [language/framework]. It connects to [external services].
-The GitHub repo is [URL]. The container registry is [URL].
-
-Using AGENTS.md as the template, fill in every section with accurate,
-project-specific information. Reference ./dev-standards/ modules where
-indicated. Do not leave any placeholder text — make every section complete
-and correct for this project.
-```
-
-The agent will produce a complete, immediately usable `AGENTS.md` that serves
-as the entry point for all future agent sessions on this project.
-
-### Step 3 — Review and commit
-
-> **Before committing: this file will be public.** Treat it as if it is
-> already visible on GitHub. It must contain no secrets, credentials, internal
-> hostnames, private URLs, employee contact details, or any information that
-> should not be publicly readable. See `02-security.md` -- Public Repository
-> Safety for the full list of what must never appear here.
-
-Review the generated `AGENTS.md` for accuracy and safety:
-
-- Domain concepts and their definitions (names of concepts, not sensitive data)
-- External dependency list: service names and env var names only -- not credentials or URLs
-- Environment variable table: variable names and purpose only -- never values
-- Commands reference (test, lint, build, run)
-- Any known accepted risks or data classification (classification labels, not data itself)
-- Confirm no internal infrastructure details, hostnames, or IP addresses crept in
-- Confirm no credentials, tokens, or secrets appear anywhere in the file
-- Replace any sensitive content the agent included with a placeholder comment:
-  `<!-- HUMAN: complete this section offline; do not include sensitive details -->`
+Review the generated file using the safety checklist in the template before
+committing. See `02-security.md` — Public Repository Safety.
 
 Then commit:
 
@@ -107,7 +97,52 @@ git commit -m "chore: add dev-standards submodule and project AGENTS.md"
 git push
 ```
 
-### Step 4 — Install pre-commit hooks
+### Step 3 — Review and commit
+
+> **Before committing: AGENTS.md will be public.** Treat it as if it is
+> already visible on GitHub. It must contain no secrets, credentials, internal
+> hostnames, private URLs, employee contact details, or any information that
+> should not be publicly readable. See `02-security.md` — Public Repository
+> Safety for the full list of what must never appear here.
+
+Review the generated `AGENTS.md` for accuracy and safety:
+
+- Domain concepts and their definitions (names of concepts, not sensitive data)
+- External dependency list: service names and env var names only — not credentials or URLs
+- Environment variable table: variable names and purpose only — never values
+- Commands reference (test, lint, build, run)
+- Layout profile and `{source_root}` / `{test_path}` declared
+- Any known accepted risks or data classification (classification labels, not data itself)
+- Confirm no internal infrastructure details, hostnames, or IP addresses crept in
+- Confirm no credentials, tokens, or secrets appear anywhere in the file
+- Replace any sensitive content the agent included with a placeholder comment:
+  `<!-- HUMAN: complete this section offline; do not include sensitive details -->`
+
+### Step 4 — Enable quality gates
+
+Walk through every gate in `04-quality-gates.md` and configure tooling in the
+project. Use this checklist for greenfield projects:
+
+- [ ] Ruff lint + format (`pyproject.toml`, Makefile, CI)
+- [ ] Python type check — mypy on `{source_root}` (if Python; declare in overlay)
+- [ ] ESLint + Prettier + tsc (if JS/TS frontend)
+- [ ] Gitleaks — `.gitleaksignore`, pre-commit, CI
+- [ ] pytest + coverage on `{source_root}` / `{test_path}`
+- [ ] Bandit SAST on `{source_root}`
+- [ ] pip-audit / npm audit
+- [ ] OSS license scan (pip-licenses, license-checker)
+- [ ] Trivy config (IaC) scan
+- [ ] Trivy container image scan
+- [ ] ZAP full + baseline scripts
+- [ ] zizmor workflow audit
+- [ ] Renovate or Dependabot for Action SHA and digest pinning
+- [ ] GitHub Actions workflows authored per `03-cicd.md`
+- [ ] `make check` mirrors CI Stage 1–2 gates
+
+Legacy projects may track gaps in `docs/compliance-gaps.md` while aligning.
+Production promotion still requires all categories in `02-security.md`.
+
+### Step 5 — Install pre-commit hooks
 
 ```bash
 pip install pre-commit
@@ -132,8 +167,6 @@ git submodule update --init --recursive
 
 ## Updating These Standards
 
-Standards are updated via PR against this repo — never committed directly.
-
 To adopt an update in a consuming project:
 
 ```bash
@@ -145,7 +178,9 @@ git push
 ```
 
 Projects pin to a specific commit and opt in to updates deliberately.
-Review security rule and pipeline behavior changes carefully before bumping.
+After bumping, review changes in `02-security.md` and `04-quality-gates.md`.
+Amend the project root `AGENTS.md` if overlay facts (paths, commands, profiles)
+need updating. Do not edit the submodule directly.
 
 ---
 
@@ -190,8 +225,11 @@ When operating as an AI coding agent in any project that includes these standard
   to source control under any circumstances.
 - **Never** bypass or disable a linting rule, security scan, or test without
   explicit human approval documented in the PR.
-- **Never** push directly to `main`, `master`, or `develop`. All changes go
-  through a PR.
+- **Never** push directly to `main` or `master`. All promotion to `main` goes
+  through a release PR.
+- **Never** push directly to `develop` unless the project overlay declares the
+  **solo/small-team** workflow profile (see `03-cicd.md`).
+- **Never** modify `dev-standards/` submodule contents from a consuming project.
 - **Never** modify `.github/workflows/` files without explicit human approval.
 - **Flag and pause** if a task would require violating any rule in `02-security.md`.
   Do not proceed autonomously — surface it for human decision.
@@ -205,12 +243,12 @@ When operating as an AI coding agent in any project that includes these standard
 
 ## Quick Reference: Definition of Done
 
-A task is not complete until all of the following pass. Full details in
-`04-quality-gates.md`.
+A task is not complete until all of the following pass for the project's
+declared stack and overlay. Full details in `04-quality-gates.md`.
 
 - [ ] Linting passes with no undocumented suppressions
-- [ ] Type checking passes
-- [ ] Unit tests pass with coverage threshold met
+- [ ] Type checking passes (when enabled in overlay for the stack)
+- [ ] Unit tests pass with coverage threshold met on declared scope
 - [ ] Tests written in the same PR as the code they cover
 - [ ] Dependency vulnerability scan clean (no HIGH or CRITICAL unmitigated)
 - [ ] Container image Trivy scan clean (no HIGH or CRITICAL unmitigated)

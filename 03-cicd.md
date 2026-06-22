@@ -63,25 +63,60 @@ release/<version>            ← cut from develop; PR targets main for official 
   activity should be reviewed and either progressed or closed.
 - **Branch names follow the convention above.** Agents must use the pattern
   `<type>/<ticket-id>-<short-description>`. No freeform names.
-- **No direct commits to `main` or `develop`.** All changes go through a PR,
-  including automated agent commits. Branch protection rules enforce this.
+- **No direct commits to `main`.** All changes reach `main` via a `release/*`
+  PR. Branch protection rules enforce this.
 - **One concern per branch.** A branch that fixes a bug and adds a feature is
   two branches. Keep scope tight.
+
+### Team Workflow Profiles
+
+Declare the active profile in the project root `AGENTS.md`.
+
+#### Enterprise (default)
+
+- Feature branches open PRs into `develop`.
+- No direct commits to `main` or `develop`.
+- Release promotion via `release/*` PR to `main`.
+
+#### Solo / small-team
+
+- Direct merge or push to `develop` is allowed.
+- **PR still required** for `release/*` → `main`.
+- No direct commits to `main`.
+
+---
+
+## CI Trigger Profiles
+
+Declare which profile the project uses in the root `AGENTS.md`. Workflow file
+names are overlay-defined (e.g. `publish.yml`, `docker-publish.yml`).
+
+#### Release-gate (default)
+
+- `pr-checks.yml` (or equivalent): PR to `main` — Stages 1–2 + ZAP full scan
+- `publish.yml`: push to `main` or `develop` — Stage 1 + Stage 3 + ZAP baseline
+- `integration.yml` (optional): PR to `main` — Stage 4
+
+#### Integration-gate
+
+- `pr-checks.yml`: PR to `develop` — Stage 1 (+ optional Stage 2 subset)
+- Full Stages 1–2 + ZAP full on `release/*` PR to `main`
+- `publish.yml`: push to `main` or `develop`
 
 ---
 
 ## Pipeline Stages
 
 Every project pipeline must implement these stages. Stages within a group run
-in parallel where possible, but stage groups execute in order. The three
-workflow files map to these stages as follows:
+in parallel where possible, but stage groups execute in order. Typical workflow
+files map to these stages (names are overlay-defined):
 
 ```
 .github/
 └── workflows/
-    ├── pr-checks.yml     ← Stages 1–2 + ZAP full scan  (trigger: PR to main)
-    ├── publish.yml       ← Stages 1 + 3 + ZAP baseline (trigger: push to main or develop)
-    └── integration.yml   ← Stage 4                      (trigger: PR to main, push to main)
+    ├── pr-checks.yml          ← Stages 1–2 + ZAP full (trigger: see CI profile)
+    ├── publish.yml            ← Stages 1 + 3 + ZAP baseline (push main/develop)
+    └── integration.yml        ← Stage 4 (optional)
 ```
 
 ### Stage 1 — Fast Checks (parallel, must pass before Stage 2 and Stage 3)
@@ -94,9 +129,9 @@ Runs on: every PR and every push to `main` and `develop`.
 - [ ] **Unit tests + coverage**: Fast tests, no external dependencies (pytest)
 
 ### Stage 2 — Security Scanning (parallel, must pass before merge)
-Runs on: every PR to `main` via `pr-checks.yml`. Projects should also consider
-running SCA and secret scanning on push to `develop` as an early warning layer,
-defined in the project overlay.
+Runs per the project's CI trigger profile (see above). At minimum on every
+release PR to `main`. Projects should also run SCA and secret scanning on push
+to `develop` as an early warning layer when using the integration-gate profile.
 
 - [ ] **SAST**: Static application security testing (Bandit, ESLint security plugin)
 - [ ] **SCA — Python**: Dependency vulnerability scan (pip-audit)
@@ -115,14 +150,16 @@ Stage 1 passes.
       above pass (`if: success()`)
 
 ### Stage 3 (PR variant) — ZAP Full Scan
-Runs on: PR to `main` only (pr-checks.yml). Complements Stage 2.
+Runs on: release PR to `main` (or per CI trigger profile). Complements Stage 2.
 
 - [ ] **Build image for scan**: Single-arch build, not pushed
 - [ ] **ZAP full scan**: Active DAST scan against containerized app — blocks
       merge on HIGH findings
 
-### Stage 4 — Integration (optional, project overlay defines)
-Runs on: PR to `main` and push to `main`.
+### Stage 4 — Integration (optional)
+Runs when the project defines integration tests. Trigger and workflow file are
+overlay-defined. Skip this workflow entirely if the project has no integration
+tests.
 
 - [ ] **Integration tests**: Tests requiring external dependencies
 - [ ] **Contract tests**: API contract validation (if applicable)
@@ -188,13 +225,17 @@ release image.
 ```
 .github/
 ├── workflows/
-│   ├── pr-checks.yml     ← PR to main: lint, type, secrets, tests, SAST, SCA, ZAP full scan
-│   ├── publish.yml       ← Push to main/develop: unit tests, build, Trivy, ZAP baseline, push
-│   └── integration.yml   ← PR to main + push to main: integration and contract tests (if defined)
+│   ├── pr-checks.yml          ← lint, type, secrets, tests, SAST, SCA, ZAP full
+│   ├── publish.yml            ← push main/develop: build, Trivy, ZAP baseline, push
+│   └── integration.yml        ← optional: integration and contract tests
 └── scripts/
-    ├── zap-full-scan.sh  ← ZAP full scan entrypoint (used in pr-checks.yml)
-    └── zap-scan.sh       ← ZAP baseline scan entrypoint (used in publish.yml)
+    ├── zap-full-scan.sh
+    └── zap-scan.sh
 ```
+
+Workflow file names are **overlay-defined** (`publish.yml`, `docker-publish.yml`,
+etc.). `integration.yml` is optional — omit it when the project has no
+integration tests.
 
 Workflow files are split by trigger and concern. A single monolithic workflow
 is not acceptable for projects beyond a trivial prototype — failure attribution
@@ -227,18 +268,50 @@ Each workflow file must define:
   (GitHub, the tool vendor) over community Actions. Audit the source before
   pinning.
 
-### Reusable Workflows
+### Workflow Authoring for Agents
 
-Common pipeline patterns are extracted into reusable workflows in the
-`dev-standards` repository and referenced by projects. This enforces consistency
-and means security fixes to shared pipeline steps propagate to all projects.
+The `dev-standards` submodule contains **documentation only** — no workflow
+files. When a project needs CI, agents author workflow files in the **project's**
+`.github/workflows/` using the patterns below.
+
+#### When to create each workflow
+
+| Workflow | Create when | Typical triggers |
+|----------|-------------|------------------|
+| `pr-checks.yml` | Always (containerized projects) | Per CI trigger profile |
+| `publish.yml` | Project builds container images | Push to `main`, `develop` |
+| `integration.yml` | Project has integration tests | PR/push per overlay |
+| Maintenance workflows | Operational need (registry cleanup, scheduled rebuild) | Schedule / manual |
+
+Not every project needs every workflow. Declare which apply in the root
+`AGENTS.md`.
+
+#### Required elements (every workflow file)
+
+- Explicit top-level or per-job `permissions` (default `contents: read`)
+- `timeout-minutes` on every job
+- All Actions pinned to full commit SHAs (see `04-quality-gates.md`)
+- Job groupings mapped to pipeline stages in this document
+
+#### Example: Stage 1 job group (embed in project workflow)
 
 ```yaml
+permissions:
+  contents: read
+
 jobs:
-  security-scan:
-    uses: your-org/dev-standards/.github/workflows/security-scan.yml@<sha>
-    secrets: inherit
+  fast-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Lint and test
+        run: make check   # must mirror 04-quality-gates.md
 ```
+
+Agents copy and adapt YAML examples from `04-quality-gates.md` into the
+project repository. Review all workflow changes with a human before merging.
 
 ---
 

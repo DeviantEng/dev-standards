@@ -211,15 +211,17 @@ on `develop` or `main`.
 
 ### Step 5 -- Self-Review Before Push
 
-Before pushing the branch, the agent must verify:
+Before pushing the branch, the agent must verify (substitute `{source_root}` and
+`{test_path}` from the project overlay — see `01-coding-standards.md`):
 
 ```bash
 # All of these must pass locally before push
 ruff check .
 ruff format --check .
-mypy src/ --strict
-pytest tests/unit/ -v --cov=src --cov-fail-under=80
+mypy {source_root}/ --strict          # when Python typecheck enabled in overlay
+pytest {test_path}/ -v --cov={source_root} --cov-fail-under=<threshold>
 pre-commit run --all-files
+# Or: make check   (when Makefile is configured per 04-quality-gates.md)
 ```
 
 If any check fails, fix it before pushing. Do not push a branch that the
